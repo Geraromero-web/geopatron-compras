@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Compras de la semana</title>
+<!--
+  Página para confirmar compras de la semana (GEOPATRON · Auditoría de proveedores).
+  No guarda ni manda datos a ningún servidor: la lista viaja en el enlace, después del «#», que el navegador nunca
+  envía al servidor. La respuesta se arma aquí mismo y se abre en WhatsApp para que la persona la mande.
+-->
+<style>
+body{margin:0;background:#F4F1EC;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;color:#1B1B1F}
+.cab{background:#1F6F5C;color:#fff;padding:18px 16px}
+.cab small{opacity:.85}.cab h1{margin:2px 0 0;font-size:22px}.cab p{margin:8px 0 0;font-size:15px;opacity:.95}
+.fac{background:#fff;border-radius:14px;padding:14px;margin:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid transparent}
+.fac.alerta{border-color:#C8473F}
+.l1{display:flex;justify-content:space-between;color:#6B6B73;font-size:14px}.l1 b{color:#1B1B1F;font-size:18px}
+.alerta .l1 b{color:#C8473F}
+.prov{font-size:18px;font-weight:700;margin:4px 0}.det{font-size:15px;color:#4A4A52}
+.av{font-size:14px;color:#C8473F;margin-top:6px}
+.bs{display:flex;gap:10px;margin-top:12px}
+.bs button{flex:1;font-size:17px;font-weight:700;border-radius:12px;padding:12px 0;background:#fff}
+.si{border:2px solid #1E9E5A;color:#1E9E5A}.si.on{background:#1E9E5A;color:#fff}
+.no{border:2px solid #C8473F;color:#C8473F}.no.on{background:#C8473F;color:#fff}
+.pie{text-align:center;color:#6B6B73;font-size:14px;margin:8px}
+.env{display:block;margin:12px;width:calc(100% - 24px);font-size:18px;font-weight:700;color:#fff;background:#25D366;border:none;border-radius:14px;padding:16px 0}
+.error{margin:24px;font-size:16px}
+</style>
+</head>
+<body>
+<div class="cab"><small>Compras de la semana</small><h1 id="titulo"></h1><p id="saludo"></p></div>
+<div id="lista"></div>
+<div class="pie" id="cuenta"></div>
+<button class="env" id="mandar" style="display:none">Mandar mi respuesta por WhatsApp</button>
+<div class="pie" id="nota" style="display:none">Se abre WhatsApp con tu respuesta lista para mandarla.</div>
+<script>
+// Datos en el enlace: #<base64url de JSON UTF-8> = {s: lunes AAAA-MM-DD, t: título, q: nombre, n: número de WhatsApp
+// para la respuesta, f: [[código, fecha, proveedor, importe, productos, alerta], …]}
+function leer() {
+  try {
+    let b = location.hash.slice(1).replace(/-/g, '+').replace(/_/g, '/');
+    while (b.length % 4) b += '=';
+    const bytes = Uint8Array.from(atob(b), c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (e) { return null; }
+}
+const D = leer();
+const R = {};
+function pintar() {
+  const l = document.getElementById('lista'); l.innerHTML = '';
+  D.f.forEach(f => {
+    const [k, fecha, prov, importe, det, alerta] = f;
+    const d = document.createElement('div'); d.className = 'fac' + (alerta ? ' alerta' : '');
+    d.innerHTML = '<div class="l1"><span></span><b></b></div><div class="prov"></div><div class="det"></div>'
+      + (alerta ? '<div class="av"></div>' : '')
+      + '<div class="bs"><button class="si">✓ Sí</button><button class="no">✗ No</button></div>';
+    d.querySelector('.l1 span').textContent = fecha; d.querySelector('.l1 b').textContent = importe;
+    d.querySelector('.prov').textContent = prov; d.querySelector('.det').textContent = det;
+    if (alerta) d.querySelector('.av').textContent = '⚠ ' + alerta;
+    const si = d.querySelector('.si'), no = d.querySelector('.no');
+    if (R[k] === 'S') si.classList.add('on'); if (R[k] === 'N') no.classList.add('on');
+    si.onclick = () => { R[k] = 'S'; pintar(); };
+    no.onclick = () => { R[k] = 'N'; pintar(); };
+    l.appendChild(d);
+  });
+  document.getElementById('cuenta').textContent = Object.keys(R).length + ' de ' + D.f.length + ' contestadas';
+}
+function mandar() {
+  const si = Object.values(R).filter(v => v === 'S').length, no = Object.values(R).filter(v => v === 'N').length;
+  const falta = D.f.length - si - no;
+  let t = 'Compras ' + D.t + ': ✓ ' + si + ' sí, ✗ ' + no + ' no' + (falta ? ', ' + falta + ' sin contestar' : '') + '\n';
+  D.f.forEach(f => { if (R[f[0]] === 'N') t += '✗ ' + f[2] + ' ' + f[1] + ' ' + f[3] + '\n'; });
+  t += '[AUD ' + D.s + ' ' + D.f.filter(f => R[f[0]]).map(f => f[0] + '=' + R[f[0]]).join(' ') + ']';
+  location.href = 'https://wa.me/' + (D.n || '') + '?text=' + encodeURIComponent(t);
+}
+if (!D || !D.f) {
+  document.getElementById('titulo').textContent = 'Enlace incompleto';
+  document.getElementById('lista').innerHTML = '<p class="error">Este enlace no trae la lista de compras. Pide que te lo vuelvan a mandar.</p>';
+} else {
+  document.getElementById('titulo').textContent = D.t;
+  document.getElementById('saludo').textContent = 'Hola' + (D.q ? ' ' + D.q : '') + ' 👋 ¿Sí recibiste estas compras? Toca una opción en cada una.';
+  document.getElementById('mandar').style.display = 'block';
+  document.getElementById('nota').style.display = 'block';
+  document.getElementById('mandar').onclick = mandar;
+  pintar();
+}
+</script>
+</body>
+</html>
