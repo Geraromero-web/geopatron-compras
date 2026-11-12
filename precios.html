@@ -26,6 +26,10 @@ body{margin:0;background:#F4F1EC;font-family:-apple-system,'Segoe UI',Roboto,san
 .txt{flex:1;min-width:0}
 .nom{font-size:17px;font-weight:600;line-height:1.25}
 .det{font-size:13.5px;color:#6B6B73;margin-top:2px}
+.costo{font-size:14.5px;color:#1B1B1F;margin-top:4px}
+.costo b{font-weight:700}
+.gana{font-size:14px;font-weight:700;margin-top:3px}
+.gana.bien{color:#1E9E5A}.gana.poco{color:#B7791F}.gana.mal{color:#C8473F}
 .pre{display:flex;align-items:center;gap:4px;font-size:20px;font-weight:700;color:#6B6B73}
 .pre input{width:84px;font-size:20px;font-weight:700;padding:8px;border:2px solid #D9D4CB;border-radius:10px;text-align:right;color:#1B1B1F;background:#FAF8F5}
 .pre input:focus{outline:none;border-color:#1F6F5C;background:#fff}
@@ -46,7 +50,8 @@ body{margin:0;background:#F4F1EC;font-family:-apple-system,'Segoe UI',Roboto,san
 <div class="pie" id="nota" style="display:none">Puedes mandar los que lleves y seguir después: lo que escribas se queda guardado en este celular.</div>
 <script>
 // Datos en el enlace: #z<base64url de JSON comprimido (deflate)> o #<base64url de JSON> =
-// {t: título, q: nombre, n: número de WhatsApp para la respuesta, p: [[número, producto, presentación, proveedor], …]}
+// {t: título, q: nombre, n: número de WhatsApp para la respuesta,
+//  p: [[número, producto, presentación, categoría, costo por pieza con impuestos (opcional)], …]}
 async function leer() {
   try {
     let h = location.hash.slice(1), z = h[0] === 'z';
@@ -64,6 +69,7 @@ async function leer() {
 let D = null, R = {}, CLAVE = '';
 function guardar() { try { localStorage.setItem(CLAVE, JSON.stringify(R)); } catch (e) {} }
 function cargar() { try { R = JSON.parse(localStorage.getItem(CLAVE) || '{}') || {}; } catch (e) { R = {}; } }
+function pesos(n) { return '$' + n.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
 function limpio(v) { const n = parseFloat(String(v).replace(',', '.').replace(/[^0-9.]/g, '')); return n > 0 ? n : null; }
 function contar() {
   const n = D.p.filter(p => R[p[0]]).length;
@@ -76,20 +82,34 @@ function pintar() {
   let prov = null;
   const visibles = D.p.filter(p => !q || p[1].toLowerCase().includes(q));
   visibles.forEach((p, i) => {
-    const [k, nom, pres, pv] = p;
+    const [k, nom, pres, pv, costo] = p;
     if (pv && pv !== prov) { prov = pv; const g = document.createElement('div'); g.className = 'grupo'; g.textContent = pv; l.appendChild(g); }
     const d = document.createElement('div');
     d.className = 'prod' + (R[k] === 'X' ? ' novende' : R[k] ? ' lleno' : '');
     d.innerHTML = '<div class="num"></div><div class="txt"><div class="nom"></div><div class="det"></div>'
+      + (costo ? '<div class="costo"></div><div class="gana"></div>' : '')
       + '<button class="no" type="button"></button></div><label class="pre">$<input inputmode="decimal" enterkeyhint="next" autocomplete="off"></label>';
     d.querySelector('.num').textContent = k;
     d.querySelector('.nom').textContent = nom;
     d.querySelector('.det').textContent = 'Precio por ' + (pres && pres !== 'pieza' ? 'pieza (viene en ' + pres + ')' : 'pieza');
+    const piezas = parseInt((String(pres).match(/de (\d+)/) || [])[1] || '1', 10);
+    const gana = d.querySelector('.gana');
+    function verGana() {
+      if (!gana) return;
+      const v = limpio(inp.value);
+      if (!v) { gana.textContent = ''; gana.className = 'gana'; return; }
+      const g = v - costo, m = g / costo;
+      gana.textContent = (g >= 0 ? 'Le ganas ' + pesos(g) : 'Pierdes ' + pesos(-g)) + ' por pieza (' + Math.round(m * 100) + ' %)';
+      gana.className = 'gana ' + (m >= .2 ? 'bien' : m >= .1 ? 'poco' : 'mal');
+    }
+    if (costo) d.querySelector('.costo').innerHTML = 'Te cuesta <b>' + pesos(costo) + '</b> la pieza'
+      + (piezas > 1 ? ' (' + pres + ' a ' + pesos(costo * piezas) + ')' : '');
     const inp = d.querySelector('input'), no = d.querySelector('.no');
     inp.setAttribute('aria-label', 'Precio de ' + nom);
     inp.value = R[k] && R[k] !== 'X' ? R[k] : '';
+    verGana();
     no.textContent = R[k] === 'X' ? 'Sí lo vendo' : 'Ya no lo vendo';
-    inp.oninput = () => { const v = limpio(inp.value); if (v) R[k] = v; else delete R[k]; d.className = 'prod' + (v ? ' lleno' : ''); guardar(); contar(); };
+    inp.oninput = () => { const v = limpio(inp.value); if (v) R[k] = v; else delete R[k]; d.className = 'prod' + (v ? ' lleno' : ''); guardar(); contar(); verGana(); };
     inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); const t = l.querySelectorAll('input'); const j = [...t].indexOf(inp); if (t[j + 1]) t[j + 1].focus(); else inp.blur(); } };
     no.onclick = () => { if (R[k] === 'X') delete R[k]; else R[k] = 'X'; guardar(); pintar(); };
     l.appendChild(d);
