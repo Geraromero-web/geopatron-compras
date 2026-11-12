@@ -51,7 +51,8 @@ body{margin:0;background:#F4F1EC;font-family:-apple-system,'Segoe UI',Roboto,san
 <script>
 // Datos en el enlace: #z<base64url de JSON comprimido (deflate)> o #<base64url de JSON> =
 // {t: título, q: nombre, n: número de WhatsApp para la respuesta,
-//  p: [[número, producto, presentación, categoría, costo por pieza con impuestos (opcional)], …]}
+//  p: [[número, producto, presentación, categoría, costo por pieza con impuestos (opcional),
+//       precio al público sugerido por el proveedor (opcional)], …]}
 async function leer() {
   try {
     let h = location.hash.slice(1), z = h[0] === 'z';
@@ -82,7 +83,7 @@ function pintar() {
   let prov = null;
   const visibles = D.p.filter(p => !q || p[1].toLowerCase().includes(q));
   visibles.forEach((p, i) => {
-    const [k, nom, pres, pv, costo] = p;
+    const [k, nom, pres, pv, costo, sug] = p;
     if (pv && pv !== prov) { prov = pv; const g = document.createElement('div'); g.className = 'grupo'; g.textContent = pv; l.appendChild(g); }
     const d = document.createElement('div');
     d.className = 'prod' + (R[k] === 'X' ? ' novende' : R[k] ? ' lleno' : '');
@@ -103,7 +104,8 @@ function pintar() {
       gana.className = 'gana ' + (m >= .2 ? 'bien' : m >= .1 ? 'poco' : 'mal');
     }
     if (costo) d.querySelector('.costo').innerHTML = 'Te cuesta <b>' + pesos(costo) + '</b> la pieza'
-      + (piezas > 1 ? ' (' + pres + ' a ' + pesos(costo * piezas) + ')' : '');
+      + (piezas > 1 ? ' (' + pres + ' a ' + pesos(costo * piezas) + ')' : '')
+      + (sug ? '<br>El proveedor sugiere venderlo a <b>' + pesos(sug) + '</b>' : '');
     const inp = d.querySelector('input'), no = d.querySelector('.no');
     inp.setAttribute('aria-label', 'Precio de ' + nom);
     inp.value = R[k] && R[k] !== 'X' ? R[k] : '';
