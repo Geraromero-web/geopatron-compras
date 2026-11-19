@@ -20,6 +20,14 @@ body{margin:0;background:#F4F1EC;font-family:-apple-system,'Segoe UI',Roboto,san
 .barra i{display:block;height:100%;background:#fff;width:0}
 .busca{display:block;margin:12px;width:calc(100% - 24px);box-sizing:border-box;font-size:16px;padding:11px 12px;border:1px solid #D9D4CB;border-radius:12px;background:#fff}
 .grupo{margin:18px 14px 6px;font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6B6B73}
+.grupo .mg{float:right;text-transform:none;letter-spacing:0;font-size:13.5px}
+.prov{margin:22px 12px 4px;padding:12px 14px;border-radius:14px;background:#1F6F5C;color:#fff;font-size:17px;font-weight:700}
+.prov .mg{float:right;font-size:15px}
+.prov small{display:block;font-weight:400;font-size:13px;opacity:.9;margin-top:2px}
+.resumen{background:#fff;border-radius:14px;margin:10px 12px 0;padding:12px 14px;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:15px}
+.resumen b{font-size:20px}
+.mg.bien{color:#1E9E5A}.mg.poco{color:#B7791F}.mg.mal{color:#C8473F}
+.prov .mg.bien,.prov .mg.poco,.prov .mg.mal{color:#fff}
 .prod{background:#fff;border-radius:14px;padding:12px 14px;margin:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;gap:12px;align-items:center;border:2px solid transparent}
 .prod.lleno{border-color:#1E9E5A}
 .num{font-size:13px;color:#6B6B73;min-width:28px;text-align:right}
@@ -55,21 +63,43 @@ body{margin:0;background:#F4F1EC;font-family:-apple-system,'Segoe UI',Roboto,san
 <div class="cab"><small>Precios de la tienda</small><h1 id="titulo"></h1><p id="saludo"></p><div class="barra"><i id="avance"></i></div></div>
 <input class="busca" id="busca" type="search" placeholder="Buscar producto…" style="display:none">
 <div class="chips" id="chips"></div>
+<div class="resumen" id="resumen" style="display:none"></div>
 <div id="lista"></div>
 <div class="pie" id="cuenta"></div>
 <button class="resto" id="resto" style="display:none">Los que no toqué están bien</button>
 <button class="env" id="mandar" style="display:none">Mandar mis precios por WhatsApp</button>
 <div class="pie" id="nota" style="display:none">Puedes mandar los que lleves y seguir después: lo que escribas se queda guardado en este celular.</div>
 <script>
-// Datos en el enlace: #z<base64url de JSON comprimido (deflate)> o #<base64url de JSON> =
+// Datos en el enlace: #z<base64url de JSON comprimido (deflate)> o #<base64url de JSON>, o enlace corto
+// #c<id>.<llave>: d/<id>.bin = 12 bytes de nonce + JSON comprimido cifrado con AES-GCM (la llave nunca sale del celular) =
 // {t: título, q: nombre, n: número de WhatsApp para la respuesta,
 //  p: [[número, producto, presentación, categoría, costo por pieza con impuestos (opcional),
 //       precio al público sugerido por el proveedor (opcional),
-//       precio al que hoy lo tiene GEOPATRON (opcional: con él la tarjeta pregunta «¿así lo vendes?»)], …]}
+//       precio al que hoy lo tiene GEOPATRON (opcional: con él la tarjeta pregunta «¿así lo vendes?»),
+//       piezas compradas en el periodo (opcional: pesan el margen promedio)], …]}
+// El 4.º puede ser «Proveedor · Categoría»: encabezado por proveedor y por categoría, cada uno con su margen.
 // Respuesta: [PRE 1=42 2=OK 9=X]  (OK = así lo vendo; X = ya no lo vendo)
+function b64(t) { let b = t.replace(/-/g, '+').replace(/_/g, '/'); while (b.length % 4) b += '='; return Uint8Array.from(atob(b), c => c.charCodeAt(0)); }
+async function inflar(bytes) {
+  const s = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return JSON.parse(new TextDecoder().decode(new Uint8Array(await new Response(s).arrayBuffer())));
+}
+async function leerCorto(h) {
+  const [id, llave] = h.slice(1).split('.');
+  if (!/^[A-Za-z0-9_-]+$/.test(id || '') || !llave) return null;
+  const r = await fetch('d/' + id + '.bin?t=' + Date.now(), {cache: 'no-store'});
+  if (r.status === 404) return {espera: true};
+  if (!r.ok) return null;
+  const blob = new Uint8Array(await r.arrayBuffer());
+  const k = await crypto.subtle.importKey('raw', b64(llave), 'AES-GCM', false, ['decrypt']);
+  const claro = await crypto.subtle.decrypt({name: 'AES-GCM', iv: blob.slice(0, 12)}, k, blob.slice(12));
+  return inflar(new Uint8Array(claro));
+}
 async function leer() {
   try {
-    let h = location.hash.slice(1), z = h[0] === 'z';
+    let h = location.hash.slice(1);
+    if (h[0] === 'c') return await leerCorto(h);
+    let z = h[0] === 'z';
     if (z) h = h.slice(1);
     let b = h.replace(/-/g, '+').replace(/_/g, '/');
     while (b.length % 4) b += '=';
@@ -88,6 +118,16 @@ function cargar() { try { R = JSON.parse(localStorage.getItem(CLAVE) || '{}') ||
 function pesos(n) { return '$' + n.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
 function limpio(v) { const n = parseFloat(String(v).replace(',', '.').replace(/[^0-9.]/g, '')); return n > 0 ? n : null; }
 function contar() {
+  resumen();
+  if (!D.p.some(p => p[6])) return;
+  document.querySelectorAll('.prov[data-prov]').forEach(h => {
+    const m = margen(D.p.filter(x => String(x[3]).split(' · ')[0] === h.dataset.prov));
+    const e = h.querySelector('.mg'); e.textContent = txtMg(m); e.className = 'mg ' + tono(m);
+  });
+  document.querySelectorAll('.grupo[data-pv]').forEach(g => {
+    const m = margen(D.p.filter(x => x[3] === g.dataset.pv));
+    const e = g.querySelector('.mg'); e.textContent = txtMg(m); e.className = 'mg ' + tono(m);
+  });
   const n = D.p.filter(p => R[p[0]]).length;
   document.getElementById('cuenta').textContent = n + ' de ' + D.p.length + ' contestados';
   document.getElementById('avance').style.width = (100 * n / D.p.length) + '%';
@@ -99,7 +139,27 @@ function pintar() {
   const visibles = D.p.filter(p => (!q || p[1].toLowerCase().includes(q)) && (!SOLO || estado(p)));
   visibles.forEach((p, i) => {
     const [k, nom, pres, pv, costo, sug, tiene] = p;
-    if (pv && pv !== prov) { prov = pv; const g = document.createElement('div'); g.className = 'grupo'; g.textContent = pv; l.appendChild(g); }
+    if (pv && pv !== prov) {
+      const partes = String(pv).split(' · '), conf = D.p.some(x => x[6]);
+      if (partes.length > 1 && partes[0] !== String(prov || '').split(' · ')[0]) {
+        const del = D.p.filter(x => String(x[3]).split(' · ')[0] === partes[0]), m = margen(del);
+        const h = document.createElement('div'); h.className = 'prov';
+        h.innerHTML = '<span class="mg ' + tono(m) + '"></span><span class="n"></span><small></small>';
+        h.querySelector('.n').textContent = partes[0];
+        h.dataset.prov = partes[0];
+        h.querySelector('.mg').textContent = conf ? txtMg(m) : '';
+        h.querySelector('small').textContent = del.length + ' productos';
+        l.appendChild(h);
+      }
+      prov = pv;
+      const g = document.createElement('div'); g.className = 'grupo';
+      const m = margen(D.p.filter(x => x[3] === pv));
+      g.innerHTML = '<span class="mg ' + tono(m) + '"></span><span class="n"></span>';
+      g.querySelector('.n').textContent = partes.length > 1 ? partes.slice(1).join(' · ') : pv;
+      g.dataset.pv = pv;
+      g.querySelector('.mg').textContent = conf ? txtMg(m) : '';
+      l.appendChild(g);
+    }
     const d = document.createElement('div');
     d.className = 'prod' + (R[k] === 'X' ? ' novende' : R[k] === 'OK' ? ' ok' : R[k] ? ' lleno' : '');
     d.innerHTML = '<div class="num"></div><div class="txt"><div class="nom"></div><div class="det"></div>'
@@ -116,7 +176,7 @@ function pintar() {
       const v = limpio(inp.value);
       if (!v) { gana.textContent = ''; gana.className = 'gana'; return; }
       const g = v - costo, m = g / costo;
-      gana.textContent = (tiene ? 'A ' + pesos(v) + ': ' : '') + (g >= 0 ? 'Le ganas ' + pesos(g) : 'Pierdes ' + pesos(-g)) + ' por pieza (' + Math.round(100 * (tiene ? g / v : m)) + ' %)';
+      gana.textContent = (tiene ? 'A ' + pesos(v) + ': ' : '') + (g >= 0 ? 'Le ganas ' + pesos(g) : 'Pierdes ' + pesos(-g)) + ' por pieza' + (tiene ? ' · margen ' + Math.round(100 * g / v) + ' %' : ' (' + Math.round(m * 100) + ' %)');
       gana.className = 'gana ' + (m >= .2 ? 'bien' : m >= .1 ? 'poco' : 'mal');
     }
     if (costo) d.querySelector('.costo').innerHTML = 'Te cuesta <b>' + pesos(costo) + '</b> la pieza'
@@ -127,7 +187,7 @@ function pintar() {
     if (tiene) {
       const g = tiene - costo;
       d.querySelector('.tiene').innerHTML = 'Lo tengo a <b>' + pesos(tiene) + '</b>'
-        + (costo ? ' · ' + (g >= 0 ? 'le ganas ' + pesos(g) : 'pierdes ' + pesos(-g)) + ' (' + Math.round(100 * g / tiene) + ' %)' : '');
+        + (costo ? '<br>' + (g >= 0 ? 'Le ganas ' + pesos(g) : 'Pierdes ' + pesos(-g)) + ' por pieza · <b class="mg ' + tono(g / tiene) + '">margen ' + Math.round(100 * g / tiene) + ' %</b>' : '');
       const si = d.querySelector('.si');
       si.textContent = R[k] === 'OK' ? '✓ Así lo vendo' : 'Sí, así lo vendo';
       si.onclick = () => { if (R[k] === 'OK') delete R[k]; else R[k] = 'OK'; guardar(); pintar(); };
@@ -143,6 +203,25 @@ function pintar() {
     l.appendChild(d);
   });
   contar();
+}
+function vale(p) { const r = R[p[0]]; return r && r !== 'OK' && r !== 'X' ? r : r === 'X' ? 0 : p[6] || 0; }
+function margen(ps) {
+  let v = 0, c = 0;
+  ps.forEach(p => { const x = vale(p), n = p[7] || 1; if (x > 0 && p[4]) { v += x * n; c += p[4] * n; } });
+  return v ? (v - c) / v : null;
+}
+function tono(m) { return m === null ? '' : m < 0 ? 'mal' : m < .1 ? 'poco' : 'bien'; }
+function txtMg(m) { return m === null ? '' : 'margen ' + Math.round(m * 100) + ' %'; }
+function resumen() {
+  const r = document.getElementById('resumen');
+  if (!D.p.some(p => p[6])) return;
+  const m = margen(D.p), provs = [...new Set(D.p.map(p => String(p[3]).split(' · ')[0]))];
+  r.style.display = 'block';
+  r.innerHTML = 'Tu margen promedio: <b class="mg ' + tono(m) + '">' + (m === null ? '—' : Math.round(m * 100) + ' %') + '</b>'
+    + '<div style="margin-top:6px;color:#6B6B73;font-size:14px">' + provs.map(pr => {
+      const mm = margen(D.p.filter(p => String(p[3]).split(' · ')[0] === pr));
+      return pr + ': <b class="mg ' + tono(mm) + '" style="font-size:14px">' + (mm === null ? '—' : Math.round(mm * 100) + ' %') + '</b>';
+    }).join(' · ') + '</div><div style="margin-top:4px;color:#6B6B73;font-size:12.5px">Margen = lo que te queda de cada peso que cobras. Pesado por las piezas que compraste.</div>';
 }
 function chips() {
   const c = document.getElementById('chips');
@@ -170,8 +249,15 @@ function mandar() {
   t += '[PRE ' + con.map(p => p[0] + '=' + R[p[0]]).join(' ') + ']';
   location.href = 'https://wa.me/' + (D.n || '') + '?text=' + encodeURIComponent(t);
 }
-(async () => {
+let intentos = 0;
+(async function arrancar() {
   D = await leer();
+  if (D && D.espera) {                 // recién mandado: GitHub tarda como un minuto en publicarlo
+    document.getElementById('titulo').textContent = 'Preparando tu lista…';
+    document.getElementById('lista').innerHTML = '<p class="error">Tu lista se está preparando. Se abre sola en un momento; no cierres esta página.</p>';
+    if (++intentos < 40) { setTimeout(arrancar, 15000); return; }
+    D = null;
+  }
   if (!D || !D.p) {
     document.getElementById('titulo').textContent = 'Enlace incompleto';
     document.getElementById('lista').innerHTML = '<p class="error">Este enlace no trae la lista de productos. Pide que te lo vuelvan a mandar. Si lo abriste dentro de otra aplicación, ábrelo en Chrome.</p>';
