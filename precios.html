@@ -39,20 +39,34 @@ body{margin:0;background:#F4F1EC;font-family:-apple-system,'Segoe UI',Roboto,san
 .pie{text-align:center;color:#6B6B73;font-size:14px;margin:10px}
 .env{position:sticky;bottom:0;display:block;margin:12px;width:calc(100% - 24px);font-size:18px;font-weight:700;color:#fff;background:#25D366;border:none;border-radius:14px;padding:16px 0;box-shadow:0 4px 14px rgba(0,0,0,.18)}
 .error{margin:24px;font-size:16px}
+.chips{display:flex;gap:8px;margin:4px 12px 0;flex-wrap:wrap}
+.chip{font-size:15px;padding:8px 14px;border-radius:20px;border:1px solid #D9D4CB;background:#fff;color:#1B1B1F}
+.chip.on{background:#1F6F5C;border-color:#1F6F5C;color:#fff}
+.tiene{font-size:15px;margin-top:6px}
+.marca{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 8px;border-radius:8px;margin-top:5px}
+.marca.mal{background:#FBE3E1;color:#C8473F}.marca.poco{background:#FFF1D6;color:#8A5A00}.marca.falta{background:#FFF1D6;color:#8A5A00}
+.si{font-size:15px;font-weight:700;color:#1E9E5A;background:#E6F5EC;border:1px solid #1E9E5A;border-radius:10px;padding:8px 12px;margin-top:8px}
+.prod.ok{border-color:#1E9E5A;background:#F3FBF6}
+.prod.ok .si{background:#1E9E5A;color:#fff}
+.resto{display:block;margin:4px 12px 0;width:calc(100% - 24px);font-size:16px;padding:12px 0;border-radius:12px;border:1px solid #1E9E5A;background:#fff;color:#1E9E5A;font-weight:700}
 </style>
 </head>
 <body>
 <div class="cab"><small>Precios de la tienda</small><h1 id="titulo"></h1><p id="saludo"></p><div class="barra"><i id="avance"></i></div></div>
 <input class="busca" id="busca" type="search" placeholder="Buscar producto…" style="display:none">
+<div class="chips" id="chips"></div>
 <div id="lista"></div>
 <div class="pie" id="cuenta"></div>
+<button class="resto" id="resto" style="display:none">Los que no toqué están bien</button>
 <button class="env" id="mandar" style="display:none">Mandar mis precios por WhatsApp</button>
 <div class="pie" id="nota" style="display:none">Puedes mandar los que lleves y seguir después: lo que escribas se queda guardado en este celular.</div>
 <script>
 // Datos en el enlace: #z<base64url de JSON comprimido (deflate)> o #<base64url de JSON> =
 // {t: título, q: nombre, n: número de WhatsApp para la respuesta,
 //  p: [[número, producto, presentación, categoría, costo por pieza con impuestos (opcional),
-//       precio al público sugerido por el proveedor (opcional)], …]}
+//       precio al público sugerido por el proveedor (opcional),
+//       precio al que hoy lo tiene GEOPATRON (opcional: con él la tarjeta pregunta «¿así lo vendes?»)], …]}
+// Respuesta: [PRE 1=42 2=OK 9=X]  (OK = así lo vendo; X = ya no lo vendo)
 async function leer() {
   try {
     let h = location.hash.slice(1), z = h[0] === 'z';
@@ -67,7 +81,8 @@ async function leer() {
     return JSON.parse(new TextDecoder().decode(bytes));
   } catch (e) { return null; }
 }
-let D = null, R = {}, CLAVE = '';
+let D = null, R = {}, CLAVE = '', SOLO = false;
+function estado(p) { const c = p[4], v = p[6]; if (!v) return c && p.length > 6 ? 'falta' : ''; if (c && v < c) return 'mal'; if (c && (v - c) / v < .1) return 'poco'; return ''; }
 function guardar() { try { localStorage.setItem(CLAVE, JSON.stringify(R)); } catch (e) {} }
 function cargar() { try { R = JSON.parse(localStorage.getItem(CLAVE) || '{}') || {}; } catch (e) { R = {}; } }
 function pesos(n) { return '$' + n.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
@@ -81,15 +96,16 @@ function pintar() {
   const l = document.getElementById('lista'); l.innerHTML = '';
   const q = document.getElementById('busca').value.trim().toLowerCase();
   let prov = null;
-  const visibles = D.p.filter(p => !q || p[1].toLowerCase().includes(q));
+  const visibles = D.p.filter(p => (!q || p[1].toLowerCase().includes(q)) && (!SOLO || estado(p)));
   visibles.forEach((p, i) => {
-    const [k, nom, pres, pv, costo, sug] = p;
+    const [k, nom, pres, pv, costo, sug, tiene] = p;
     if (pv && pv !== prov) { prov = pv; const g = document.createElement('div'); g.className = 'grupo'; g.textContent = pv; l.appendChild(g); }
     const d = document.createElement('div');
-    d.className = 'prod' + (R[k] === 'X' ? ' novende' : R[k] ? ' lleno' : '');
+    d.className = 'prod' + (R[k] === 'X' ? ' novende' : R[k] === 'OK' ? ' ok' : R[k] ? ' lleno' : '');
     d.innerHTML = '<div class="num"></div><div class="txt"><div class="nom"></div><div class="det"></div>'
       + (costo ? '<div class="costo"></div><div class="gana"></div>' : '')
-      + '<button class="no" type="button"></button></div><label class="pre">$<input inputmode="decimal" enterkeyhint="next" autocomplete="off"></label>';
+      + (tiene ? '<div class="tiene"></div><div class="marcas"></div><button class="si" type="button"></button><br>' : '<div class="marcas"></div>')
+      + '<button class="no" type="button"></button></div><label class="pre">$<input inputmode="decimal" enterkeyhint="next" autocomplete="off"' + (tiene ? ' placeholder="otro"' : '') + '></label>';
     d.querySelector('.num').textContent = k;
     d.querySelector('.nom').textContent = nom;
     d.querySelector('.det').textContent = 'Precio por ' + (pres && pres !== 'pieza' ? 'pieza (viene en ' + pres + ')' : 'pieza');
@@ -100,29 +116,57 @@ function pintar() {
       const v = limpio(inp.value);
       if (!v) { gana.textContent = ''; gana.className = 'gana'; return; }
       const g = v - costo, m = g / costo;
-      gana.textContent = (g >= 0 ? 'Le ganas ' + pesos(g) : 'Pierdes ' + pesos(-g)) + ' por pieza (' + Math.round(m * 100) + ' %)';
+      gana.textContent = (tiene ? 'A ' + pesos(v) + ': ' : '') + (g >= 0 ? 'Le ganas ' + pesos(g) : 'Pierdes ' + pesos(-g)) + ' por pieza (' + Math.round(100 * (tiene ? g / v : m)) + ' %)';
       gana.className = 'gana ' + (m >= .2 ? 'bien' : m >= .1 ? 'poco' : 'mal');
     }
     if (costo) d.querySelector('.costo').innerHTML = 'Te cuesta <b>' + pesos(costo) + '</b> la pieza'
       + (piezas > 1 ? ' (' + pres + ' a ' + pesos(costo * piezas) + ')' : '')
       + (sug ? '<br>El proveedor sugiere venderlo a <b>' + pesos(sug) + '</b>' : '');
+    const est = estado(p), mc = d.querySelector('.marcas');
+    if (est) mc.innerHTML = '<span class="marca ' + est + '">' + {mal: 'Lo vendes a pérdida', poco: 'Te deja poco', falta: 'Falta su precio'}[est] + '</span>';
+    if (tiene) {
+      const g = tiene - costo;
+      d.querySelector('.tiene').innerHTML = 'Lo tengo a <b>' + pesos(tiene) + '</b>'
+        + (costo ? ' · ' + (g >= 0 ? 'le ganas ' + pesos(g) : 'pierdes ' + pesos(-g)) + ' (' + Math.round(100 * g / tiene) + ' %)' : '');
+      const si = d.querySelector('.si');
+      si.textContent = R[k] === 'OK' ? '✓ Así lo vendo' : 'Sí, así lo vendo';
+      si.onclick = () => { if (R[k] === 'OK') delete R[k]; else R[k] = 'OK'; guardar(); pintar(); };
+    }
     const inp = d.querySelector('input'), no = d.querySelector('.no');
     inp.setAttribute('aria-label', 'Precio de ' + nom);
-    inp.value = R[k] && R[k] !== 'X' ? R[k] : '';
+    inp.value = R[k] && R[k] !== 'X' && R[k] !== 'OK' ? R[k] : '';
     verGana();
     no.textContent = R[k] === 'X' ? 'Sí lo vendo' : 'Ya no lo vendo';
-    inp.oninput = () => { const v = limpio(inp.value); if (v) R[k] = v; else delete R[k]; d.className = 'prod' + (v ? ' lleno' : ''); guardar(); contar(); verGana(); };
+    inp.oninput = () => { const v = limpio(inp.value); if (v) R[k] = v; else delete R[k]; d.className = 'prod' + (v ? ' lleno' : ''); const si = d.querySelector('.si'); if (si) si.textContent = 'Sí, así lo vendo'; guardar(); contar(); verGana(); };
     inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); const t = l.querySelectorAll('input'); const j = [...t].indexOf(inp); if (t[j + 1]) t[j + 1].focus(); else inp.blur(); } };
     no.onclick = () => { if (R[k] === 'X') delete R[k]; else R[k] = 'X'; guardar(); pintar(); };
     l.appendChild(d);
   });
   contar();
 }
+function chips() {
+  const c = document.getElementById('chips');
+  if (!D.p.some(p => p[6])) { c.style.display = 'none'; return; }
+  const n = D.p.filter(estado).length;
+  c.innerHTML = '';
+  [[false, 'Todos ' + D.p.length], [true, 'Revisar primero ' + n]].forEach(([v, t]) => {
+    const b = document.createElement('button'); b.className = 'chip' + (SOLO === v ? ' on' : ''); b.textContent = t;
+    b.onclick = () => { SOLO = v; chips(); pintar(); }; c.appendChild(b);
+  });
+}
+function resto() {
+  const faltan = D.p.filter(p => p[6] && !R[p[0]]);
+  if (!faltan.length) { alert('Ya revisaste todos.'); return; }
+  if (!confirm('¿Los ' + faltan.length + ' que no tocaste los vendes al precio que dice «Lo tengo a»?')) return;
+  faltan.forEach(p => R[p[0]] = 'OK'); guardar(); pintar();
+}
 function mandar() {
   const con = D.p.filter(p => R[p[0]]);
   if (!con.length) { alert('Todavía no escribes ningún precio.'); return; }
-  const precios = con.filter(p => R[p[0]] !== 'X').length, fuera = con.length - precios;
-  let t = 'Precios de la tienda: ' + precios + ' de ' + D.p.length + (fuera ? ', ' + fuera + ' ya no los vendo' : '') + '\n';
+  const ok = con.filter(p => R[p[0]] === 'OK').length, fuera = con.filter(p => R[p[0]] === 'X').length;
+  const precios = con.length - ok - fuera;
+  let t = 'Precios de la tienda: ' + (ok ? ok + ' así los vendo, ' + precios + ' con otro precio' : precios + ' de ' + D.p.length)
+    + (fuera ? ', ' + fuera + ' ya no los vendo' : '') + '\n';
   t += '[PRE ' + con.map(p => p[0] + '=' + R[p[0]]).join(' ') + ']';
   location.href = 'https://wa.me/' + (D.n || '') + '?text=' + encodeURIComponent(t);
 }
@@ -136,8 +180,13 @@ function mandar() {
   CLAVE = 'precios:' + D.p.map(p => p[0]).join(',').slice(0, 400);
   cargar();
   document.getElementById('titulo').textContent = D.t;
-  document.getElementById('saludo').textContent = 'Hola' + (D.q ? ' ' + D.q : '') + ' 👋 Escribe a cuánto vendes cada uno. Lo que no sepas, déjalo vacío.';
+  const conf = D.p.some(p => p[6]);
+  document.getElementById('saludo').textContent = 'Hola' + (D.q ? ' ' + D.q : '') + ' 👋 ' + (conf
+    ? 'Revisa tus precios: si así lo vendes toca «Sí»; si no, escribe a cómo lo vendes.'
+    : 'Escribe a cuánto vendes cada uno. Lo que no sepas, déjalo vacío.');
   ['busca', 'mandar', 'nota'].forEach(i => document.getElementById(i).style.display = 'block');
+  if (conf) { document.getElementById('resto').style.display = 'block'; document.getElementById('resto').onclick = resto; }
+  chips();
   document.getElementById('busca').oninput = pintar;
   document.getElementById('mandar').onclick = mandar;
   pintar();
